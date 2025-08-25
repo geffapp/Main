@@ -1,83 +1,162 @@
-import os, time, csv, requests
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Bangkok clinics (Sukhumvit area) review collector
+- Step 1: use SerpAPI Google Maps endpoints to fetch paginated reviews
+- Step 2: detect English reviews, compute share_english and a simple foreigner_score
+- Step 3: save two CSVs: clinics_summary.csv and reviews_sample.csv
+
+Requirements:
+  pip install requests python-dotenv langdetect pandas
+Environment variables (or replace inline):
+  SERPAPI_API_KEY = '...'
+"""
+
+import os
+import time
+import requests
+import pandas as pd
 from langdetect import detect, LangDetectException
 
-API_KEY = "YOUR_SERPAPI_KEY"
-queries = [
-  "aesthetic clinic bangkok",
-  "dermatology clinic bangkok",
-  "skin clinic sukhumvit"
+# ============== CONFIG =====
+SERPAPI_API_KEY = os.getenv("SERPAPI_API_KEY", "PUT_YOUR_SERPAPI_KEY_HERE")
+
+SEARCH_QUERIES = [
+    "aesthetic clinic near Sukhumvit Bangkok",
+    "dermatology clinic Sukhumvit Bangkok",
+    "botox clinic Sukhumvit",
+    "skin clinic Thonglor",
+    "aesthetic clinic Ekkamai",
 ]
 
-def fetch_places(q):
-  url = "https://serpapi.com/search.json"
-  params = {"engine":"google_maps", "q": q, "type":"search", "api_key": API_KEY}
-  return requests.get(url, params=params).json().get("local_results", [])
+LOCATION_HINT = "Bangkok, Thailand"
+MAX_SERPAPI_REVIEW_PAGES = 5
+PAUSE = 2.0
 
-def fetch_reviews(data_id, max_pages=5):
-  url = "https://serpapi.com/search.json"
-  reviews = []
-  next_page_token = None
-  for _ in range(max_pages):
+def serpapi_maps_search(query):
+    url = "https://serpapi.com/search.json"
     params = {
-      "engine":"google_maps_reviews",
-      "data_id": data_id,
-      "sortby":"newest",
-      "api_key": API_KEY
+        "engine": "google_maps",
+        "q": query,
+        "type": "search",
+        "hl": "en",
+        "api_key": SERPAPI_API_KEY
     }
-    if next_page_token:
-      params["next_page_token"] = next_page_token
-    r = requests.get(url, params=params).json()
-    reviews.extend(r.get("reviews", []))
-    next_page_token = r.get("serpapi_pagination", {}).get("next_page_token")
-    if not next_page_token:
-      break
-    time.sleep(2) # polite pacing
-  return reviews
+    r = requests.get(url, params=params, timeout=30)
+    r.raise_for_status()
+    return r.json().get("local_results", [])
 
-rows = []
-seen = set()
+def serpapi_fetch_reviews(data_id, max_pages=5, sortby="newest"):
+    url = "https://serpapi.com/search.json"
+    all_reviews = []
+    next_page_token = None
+    for _ in range(max_pages):
+        params = {
+            "engine": "google_maps_reviews",
+            "data_id": data_id,
+            "hl": "en",
+            "sortby": sortby,
+            "api_key": SERPAPI_API_KEY
+        }
+        if next_page_token:
+            params["next_page_token"] = next_page_token
+        r = requests.get(url, params=params, timeout=60)
+        r.raise_for_status()
+        payload = r.json()
+        reviews = payload.get("reviews", [])
+        all_reviews.extend(reviews)
+        next_page_token = payload.get("serpapi_pagination", {}).get("next_page_token")
+        if not next_page_token:
+            break
+        time.sleep(PAUSE)
+    return all_reviews
 
-for q in queries:
-  for place in fetch_places(q):
-    data_id = place.get("data_id")
-    if not data_id or data_id in seen:
-      continue
-    seen.add(data_id)
-    name = place.get("title")
-    rating = place.get("rating")
-    rating_count = place.get("reviews")
-    address = place.get("address")
-    reviews = fetch_reviews(data_id, max_pages=5)
+def detect_english(text):
+    text = (text or "").strip()
+    if not text:
+        return False
+    try:
+        return detect(text) == "en"
+    except LangDetectException:
+        return False
 
-    eng_reviews, total_reviews = 0, 0
-    for rv in reviews:
-      text = rv.get("snippet") or ""
-      if not text.strip():
-        continue
-      total_reviews += 1
-      try:
-        if detect(text) == "en":
-          eng_reviews += 1
-      except LangDetectException:
-        pass
+def foreigner_score(share_english, reviews_scraped, rating):
+    return 0.5 * share_english + 0.3 * min(1.0, reviews_scraped / 200.0) + 0.2 * (float(rating or 0) / 5.0)
 
-    share_en = (eng_reviews/total_reviews) if total_reviews else 0
-    rows.append({
-      "clinic_name": name,
-      "address": address,
-      "gmaps_data_id": data_id,
-      "rating": rating,
-      "rating_count_label": rating_count,
-      "reviews_scraped": total_reviews,
-      "english_reviews": eng_reviews,
-      "share_english": round(share_en, 3),
-      "query_seed": q
-    })
+def main():
+    if "PUT_YOUR_SERPAPI_KEY_HERE" in SERPAPI_API_KEY:
+        print(">>> Please set SERPAPI_API_KEY in your environment or inline in this file.")
+        return
 
-# Save CSV
-with open("bangkok_clinics_reviews_summary.csv","w",newline="",encoding="utf-8") as f:
-  w = csv.DictWriter(f, fieldnames=rows[0].keys())
-  w.writeheader()
-  w.writerows(rows)
+    print("Fetching places via SerpAPI...")
+    data_places = {}
+    for q in SEARCH_QUERIES:
+        local_results = serpapi_maps_search(q + " " + LOCATION_HINT)
+        for place in local_results:
+            data_id = place.get("data_id")
+            if not data_id:
+                continue
+            if data_id not in data_places:
+                data_places[data_id] = {
+                    "clinic_name": place.get("title"),
+                    "address": place.get("address"),
+                    "rating": place.get("rating"),
+                    "reviews_label": place.get("reviews"),
+                    "queries": {q}
+                }
+            else:
+                data_places[data_id]["queries"].add(q)
+        time.sleep(PAUSE)
 
-print("Saved bangkok_clinics_reviews_summary.csv")
+    print(f"  Structured places collected: {len(data_places)}")
+
+    print("Fetching reviews...")
+    rows_summary = []
+    rows_reviews = []
+
+    for idx, (data_id, meta) in enumerate(data_places.items(), start=1):
+        print(f"  [{idx}/{len(data_places)}] {meta.get('clinic_name')}")
+        reviews = serpapi_fetch_reviews(data_id, max_pages=MAX_SERPAPI_REVIEW_PAGES)
+        total_reviews = 0
+        english_reviews = 0
+        for rv in reviews:
+            snippet = rv.get("snippet") or rv.get("description") or ""
+            is_en = detect_english(snippet)
+            total_reviews += 1 if snippet.strip() else 0
+            english_reviews += 1 if is_en else 0
+            if snippet.strip():
+                rows_reviews.append({
+                    "data_id": data_id,
+                    "clinic_name": meta.get("clinic_name"),
+                    "rating_at_time": rv.get("rating"),
+                    "reviewer_name": rv.get("user"),
+                    "review_time": rv.get("date"),
+                    "is_english": is_en,
+                    "text": snippet
+                })
+        share_en = (english_reviews / total_reviews) if total_reviews else 0.0
+        score = foreigner_score(share_en, total_reviews, meta.get("rating"))
+        rows_summary.append({
+            "data_id": data_id,
+            "clinic_name": meta.get("clinic_name"),
+            "address": meta.get("address"),
+            "rating": meta.get("rating"),
+            "reviews_label": meta.get("reviews_label"),
+            "reviews_scraped": total_reviews,
+            "english_reviews": english_reviews,
+            "share_english": round(share_en, 3),
+            "foreigner_score": round(score, 3),
+            "query_seeds": "; ".join(sorted(meta.get("queries", [])))
+        })
+        time.sleep(PAUSE)
+
+    print("Saving CSV files...")
+    df_summary = pd.DataFrame(rows_summary).sort_values(
+        by=["foreigner_score","share_english","reviews_scraped"], ascending=False)
+    df_summary.to_csv("clinics_summary.csv", index=False, encoding="utf-8-sig")
+    df_reviews = pd.DataFrame(rows_reviews)
+    df_reviews.to_csv("reviews_sample.csv", index=False, encoding="utf-8-sig")
+    print("Done. Files saved: clinics_summary.csv and reviews_sample.csv")
+
+if __name__ == "__main__":
+    main()
