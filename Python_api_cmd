@@ -1,0 +1,17 @@
+--load python in virtual
+python3 -m venv .venv
+source .venv/bin/activate
+
+---install requirements
+pip install requests python-dotenv langdetect pandas
+
+
+
+--SERAPI_API_KEY
+export SERPAPI_API_KEY="1a4a0fab44e0e7074b062b6672768ced5d432901a4756b083605af9bae37e457"
+echo $SERPAPI_API_KEY       # should print your key back
+python scrape_bkk_clinics.py
+
+
+-- check requirements
+pip list
