@@ -15,3 +15,11 @@ python scrape_bkk_clinics.py
 
 -- check requirements
 pip list
+
+
+-- to run
+cd ~/Desktop/bkk_clinic
+--
+ls -l
+--
+python scrape_bkk_clinics.py
