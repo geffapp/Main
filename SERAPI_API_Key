@@ -1,0 +1,3 @@
+export SERPAPI_API_KEY="1885a33926b6ec7f55d661666805803386dd0976"
+echo $SERPAPI_API_KEY       # should print your key back
+python scrape_bkk_clinics.py
