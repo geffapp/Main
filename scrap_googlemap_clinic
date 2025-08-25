@@ -1,0 +1,83 @@
+import os, time, csv, requests
+from langdetect import detect, LangDetectException
+
+API_KEY = "YOUR_SERPAPI_KEY"
+queries = [
+  "aesthetic clinic bangkok",
+  "dermatology clinic bangkok",
+  "skin clinic sukhumvit"
+]
+
+def fetch_places(q):
+  url = "https://serpapi.com/search.json"
+  params = {"engine":"google_maps", "q": q, "type":"search", "api_key": API_KEY}
+  return requests.get(url, params=params).json().get("local_results", [])
+
+def fetch_reviews(data_id, max_pages=5):
+  url = "https://serpapi.com/search.json"
+  reviews = []
+  next_page_token = None
+  for _ in range(max_pages):
+    params = {
+      "engine":"google_maps_reviews",
+      "data_id": data_id,
+      "sortby":"newest",
+      "api_key": API_KEY
+    }
+    if next_page_token:
+      params["next_page_token"] = next_page_token
+    r = requests.get(url, params=params).json()
+    reviews.extend(r.get("reviews", []))
+    next_page_token = r.get("serpapi_pagination", {}).get("next_page_token")
+    if not next_page_token:
+      break
+    time.sleep(2) # polite pacing
+  return reviews
+
+rows = []
+seen = set()
+
+for q in queries:
+  for place in fetch_places(q):
+    data_id = place.get("data_id")
+    if not data_id or data_id in seen:
+      continue
+    seen.add(data_id)
+    name = place.get("title")
+    rating = place.get("rating")
+    rating_count = place.get("reviews")
+    address = place.get("address")
+    reviews = fetch_reviews(data_id, max_pages=5)
+
+    eng_reviews, total_reviews = 0, 0
+    for rv in reviews:
+      text = rv.get("snippet") or ""
+      if not text.strip():
+        continue
+      total_reviews += 1
+      try:
+        if detect(text) == "en":
+          eng_reviews += 1
+      except LangDetectException:
+        pass
+
+    share_en = (eng_reviews/total_reviews) if total_reviews else 0
+    rows.append({
+      "clinic_name": name,
+      "address": address,
+      "gmaps_data_id": data_id,
+      "rating": rating,
+      "rating_count_label": rating_count,
+      "reviews_scraped": total_reviews,
+      "english_reviews": eng_reviews,
+      "share_english": round(share_en, 3),
+      "query_seed": q
+    })
+
+# Save CSV
+with open("bangkok_clinics_reviews_summary.csv","w",newline="",encoding="utf-8") as f:
+  w = csv.DictWriter(f, fieldnames=rows[0].keys())
+  w.writeheader()
+  w.writerows(rows)
+
+print("Saved bangkok_clinics_reviews_summary.csv")
