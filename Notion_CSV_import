@@ -1,0 +1,29 @@
+To troubleshoot Notion CSV imports, check for file formatting errors (like stray commas), ensure the file is UTF-8 encoded, split large files into smaller chunks, and verify the first row is a header with column names matching your Notion properties. If importing into an existing database, ensure a column name matches an existing property to avoid column mismatch errors.
+ 
+Common CSV Import Errors and Solutions
+File Formatting & Delimiters:
+Problem: Stray commas, missing quotation marks, or inconsistent separators can misinterpret your data structure. 
+Solution: Open the CSV in a text editor, check for errors, or re-export from your spreadsheet tool to ensure consistent formatting. Use a CSV validator tool. 
+Encoding:
+Problem: Notion requires UTF-8 encoding. Files saved in ANSI or other formats with special characters or emojis may fail to import. 
+Solution: When saving the CSV from your spreadsheet or text editor, explicitly choose UTF-8 encoding. 
+File Size:
+Problem: Very large files (many rows or columns) can time out or fail to upload. 
+Solution: Break the large CSV file into smaller, more manageable chunks and import them separately. 
+Column Mismatch & Header Issues:
+Problem: When importing into an existing database, if column names in the CSV don't match the database properties, or if there's no header row, the import may fail or data may not be mapped correctly. 
+Solution: Make sure the first row of your CSV is a header row. If importing into an existing database, ensure at least one column name exactly matches a property in your Notion database. 
+Unsupported Data Types:
+Problem: Notion may not process certain complex formulas or unsupported data types found in the CSV. 
+Solution: If a column contains mixed data types, Notion may default to importing it as a string (text) to avoid data loss. 
+Best Practices for Importing
+1. Headers First:
+Always place your column headers in the very first row of your CSV file. 
+2. UTF-8 Encoding:
+Save your CSV file with UTF-8 encoding to handle special characters correctly. 
+3. Split Large Files:
+Divide large datasets into smaller CSVs for easier and more successful imports. 
+4. Check Existing Databases:
+When merging with an existing database, ensure there's a matching column name to avoid "column mismatch" errors. 
+5. Desktop/Web App:
+Import CSVs from the Notion desktop or web app; mobile app support is not available. 
